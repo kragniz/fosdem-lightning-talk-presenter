@@ -1,11 +1,51 @@
 #!/usr/bin/env python
 
+import json
 import sys
+from datetime import datetime
+from dataclasses import dataclass
+
 import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Gtk, Adw, Gdk, Gio
+
+
+@dataclass
+class Talk:
+    title: str
+    first_name: str
+    last_name: str
+    slides_name: str
+    slides_url: str
+
+
+class Session:
+    def __init__(self, api_dict):
+        self.start = self.get_time_from_field(api_dict, "start")
+        self.end = self.get_time_from_field(api_dict, "end")
+
+        talks = api_dict.get("talks")
+        self.talks = self.create_talks(talks)
+
+    def get_time_from_field(self, d, field_name):
+        timestamp = d.get(field_name).replace("Z", "+00:00")
+        return datetime.fromisoformat(timestamp)
+
+    def create_talks(self, json_talks):
+        talks = []
+        for t in json_talks:
+            talks.append(
+                Talk(
+                    title=t.get("title"),
+                    first_name=t.get("first_name"),
+                    last_name=t.get("last_name"),
+                    slides_name=t.get("slides_name"),
+                    slides_url=t.get("slides_url"),
+                )
+            )
+        return talks
 
 
 class MainWindow(Adw.ApplicationWindow):
@@ -41,6 +81,12 @@ class LightningClient(Adw.Application):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.connect("activate", self.on_activate)
+
+        with open("session_1.json") as f:
+            self.session = Session(json.load(f))
+        print(self.session.start)
+        print(self.session.end)
+        print(self.session.talks)
 
     def on_activate(self, app):
         self.win = MainWindow(application=app)
