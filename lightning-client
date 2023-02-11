@@ -15,6 +15,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Gtk, Adw, Gdk, Gio
 from gi.repository import Pango, PangoCairo
+from gi.repository import Poppler
 
 
 @dataclass
@@ -73,6 +74,7 @@ class State:
     mode: Mode
     current_talk_time_started: datetime
     session: Session
+    page: int
 
 
 TITLE_FONT = "Inter Bold 40"
@@ -100,9 +102,41 @@ class MainWindow(Adw.ApplicationWindow):
         self.dw.set_draw_func(self.draw, None)
         self.set_content(self.dw)
 
+        self.doc = Poppler.Document.new_from_file(
+            "file://" + os.path.abspath("slides/helios_lt.pdf")
+        )
+        self.pages_count = self.doc.get_n_pages()
+        print(f"got {self.pages_count=}")
+        self.update_page()
+        print(f"{self.page.get_size()=}")
+
+    def update_page(self):
+        self.page = self.doc.get_page(self.state.page)
+        self.page_x, self.page_y = self.page.get_size()
+
     def draw(self, area, c, w, h, data):
         if self.state.mode == Mode.INTRO:
             self.draw_intro(area, c, w, h, data)
+        if self.state.mode == Mode.PRESENTATION:
+            self.draw_presentation(area, c, w, h, data)
+
+    def draw_presentation(self, area, c, w, h, data):
+        c.set_source_rgb(0, 0, 0)
+        c.paint()
+
+        c.save()
+        width_scale = w / self.page_x
+        height_scale = h / self.page_y
+        if width_scale > height_scale:
+            scale = height_scale
+        else:
+            scale = width_scale
+
+        c.scale(scale, scale)
+        try:
+            self.page.render(c)
+        finally:
+            c.restore()
 
     def draw_intro(self, area, c, w, h, data):
         c.set_source_rgb(0.9, 0.9, 0.9)
@@ -142,6 +176,14 @@ class MainWindow(Adw.ApplicationWindow):
             self.destroy()
         elif keyval == Gdk.KEY_f and state & Gdk.ModifierType.CONTROL_MASK:
             self.toggle_fullscreen()
+        elif keyval == Gdk.KEY_space:
+            if self.state.mode == Mode.INTRO:
+                print("starting presentation")
+                self.state.mode = Mode.PRESENTATION
+            if self.state.mode == Mode.PRESENTATION:
+                self.state.page += 1
+                self.update_page()
+            self.dw.queue_draw()
 
 
 class PreviewWindow(Adw.ApplicationWindow):
@@ -164,6 +206,7 @@ class LightningClient(Adw.Application):
             mode=Mode.INTRO,
             current_talk_time_started=datetime.now(),
             session=self.session,
+            page=0,
         )
 
     def on_activate(self, app):
