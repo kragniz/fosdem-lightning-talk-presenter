@@ -1,7 +1,9 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 import json
 import sys
+import os
+import urllib.request
 from datetime import datetime
 from dataclasses import dataclass
 
@@ -47,6 +49,15 @@ class Session:
             )
         return talks
 
+    def fetch_talk_slides(self):
+        os.makedirs("slides", exist_ok=True)
+
+        for talk in self.talks:
+            path = os.path.join("slides", talk.slides_name)
+            if not os.path.isfile(path):
+                print(f"{path} isn't available locally, fetching...")
+                urllib.request.urlretrieve(talk.slides_url, path)
+
 
 class MainWindow(Adw.ApplicationWindow):
     def __init__(self, *args, **kwargs):
@@ -87,6 +98,7 @@ class LightningClient(Adw.Application):
         print(self.session.start)
         print(self.session.end)
         print(self.session.talks)
+        self.session.fetch_talk_slides()
 
     def on_activate(self, app):
         self.win = MainWindow(application=app)
