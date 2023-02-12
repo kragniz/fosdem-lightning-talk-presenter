@@ -15,6 +15,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 gi.require_version("Poppler", "0.18")
 from gi.repository import Gtk, Adw, Gdk, Gio, GLib
+from gi.repository.GdkPixbuf import Pixbuf, InterpType
 from gi.repository import Pango, PangoCairo
 from gi.repository import Poppler
 
@@ -75,6 +76,7 @@ class Mode(Enum):
 class State:
     mode: Mode
     current_talk_time_end: datetime
+    current_intro_time_start: datetime
     time_left: timedelta
     session: Session
     page: int
@@ -105,6 +107,14 @@ class State:
             minutes, seconds = divmod(remainder, 60)
             return f"{minutes:02d}:{seconds:02d}"
 
+    def move_to_next_talk(self):
+        self.mode = Mode.INTRO
+        self.page = 0
+        self.talk += 1
+        self.current_intro_time_start = datetime.now()
+        self.time_left = timedelta(minutes=5)
+        self.current_talk_time_end = datetime.now() + timedelta(minutes=5)
+
 
 TITLE_FONT = "Inter Bold 20"
 TITLE_FONT_DEC = Pango.font_description_from_string(TITLE_FONT)
@@ -114,6 +124,8 @@ TIMER_FONT = "Inter Bold 50"
 TIMER_FONT_DEC = Pango.font_description_from_string(TIMER_FONT)
 DEFAULT_WIDTH = 453.543
 DEFAULT_HEIGHT = 255.118
+TITLE_BACKGROUND = (0.99, 0.97, 0.99)
+FOSDEM_PURPLE = (0.671, 0.106, 0.576)
 
 
 class MainWindow(Adw.ApplicationWindow):
@@ -127,6 +139,10 @@ class MainWindow(Adw.ApplicationWindow):
         evk = Gtk.EventControllerKey.new()
         evk.connect("key-pressed", self.key_press)
         self.add_controller(evk)
+
+        self.logo_pixbuf = Pixbuf.new_from_file("images/logo-gear.png")
+        self.logo_pixbuf_w = self.logo_pixbuf.get_width()
+        self.logo_pixbuf_h = self.logo_pixbuf.get_height()
 
         self.dw = Gtk.DrawingArea()
 
@@ -162,6 +178,19 @@ class MainWindow(Adw.ApplicationWindow):
         else:
             return 1 - ((-2 * x + 2) ** 3) / 2
 
+    def ease_out_quint(self, x):
+        return 1 - (1 - x) ** 5
+
+    def ease_out_elastic(self, x):
+        c4 = (2 * math.pi) / 3
+
+        if x <= 0:
+            return 0.0
+        elif x >= 1:
+            return 1.0
+        else:
+            return 2 ** (-10 * x) * math.sin((x * 10 - 0.75) * c4) + 1
+
     def draw(self, area, c, w, h, data):
         if self.state.mode == Mode.INTRO:
             self.draw_intro(area, c, w, h, data)
@@ -189,9 +218,7 @@ class MainWindow(Adw.ApplicationWindow):
         fade_time = 10
         if self.state.time_left.seconds <= fade_time:
             c.set_source_rgba(
-                0.9,
-                0.9,
-                0.9,
+                *TITLE_BACKGROUND,
                 self.ease_out_cubic(
                     1 - self.state.time_left.total_seconds() / fade_time
                 ),
@@ -207,8 +234,36 @@ class MainWindow(Adw.ApplicationWindow):
             scale = width_scale
         c.scale(scale, scale)
 
-        c.set_source_rgb(0.9, 0.9, 0.9)
+        c.set_source_rgb(*TITLE_BACKGROUND)
         c.paint()
+
+        intro_time_elapsed = (
+            datetime.now() - self.state.current_intro_time_start
+        ).total_seconds()
+
+        ease_time = 3
+        ease_distance = 1000
+        if intro_time_elapsed <= ease_time:
+            ease = self.ease_out_quint(intro_time_elapsed / ease_time)
+        else:
+            ease = 1
+
+        c.save()
+        scale = 0.3
+        c.scale(scale, scale)
+        c.translate(400 * ease - 200, 200)
+        circumference = 2 * math.pi * self.logo_pixbuf_w * scale
+        rotation = (math.pi * 2) / (
+            circumference / (ease * ease_distance)
+        ) - 16.6666  # subtract the end rotation so it lines up
+        c.rotate(rotation)
+        Gdk.cairo_set_source_pixbuf(
+            c, self.logo_pixbuf, -self.logo_pixbuf_w / 2, -self.logo_pixbuf_h / 2
+        )
+        c.paint()
+        c.restore()
+
+        c.translate(ease_distance - ease * ease_distance, 0)
 
         c.set_source_rgb(0.1, 0.1, 0.1)
 
@@ -258,9 +313,7 @@ class MainWindow(Adw.ApplicationWindow):
             elif self.state.mode == Mode.PRESENTATION:
                 self.state.page += 1
                 if self.state.page >= self.pages_count:
-                    self.state.mode = Mode.INTRO
-                    self.state.page = 0
-                    self.state.talk += 1
+                    self.state.move_to_next_talk()
                     self.update_talk()
                 else:
                     self.update_page()
@@ -326,7 +379,6 @@ class PreviewWindow(Adw.ApplicationWindow):
         if self.state.mode == Mode.INTRO:
             layout.set_text(f"PRESS SPACE TO START TALK", -1)
         if self.state.mode == Mode.PRESENTATION:
-            formatted_time = str(self.state.time_left).split(".")[0]
             layout.set_text(f"TIME REMAINING:", -1)
 
         c.save()
@@ -361,6 +413,7 @@ class LightningClient(Adw.Application):
         self.state = State(
             mode=Mode.INTRO,
             current_talk_time_end=datetime.now(),
+            current_intro_time_start=datetime.now(),
             time_left=timedelta(minutes=5),
             session=self.session,
             page=0,
@@ -374,6 +427,8 @@ class LightningClient(Adw.Application):
         self.preview_win = PreviewWindow(state=self.state, application=app)
         self.preview_win.present()
 
+        self.frame_rate = 30
+
         def update_timer():
             self.preview_win.dw.queue_draw()
             self.win.dw.queue_draw()
@@ -382,13 +437,11 @@ class LightningClient(Adw.Application):
                 self.state.mode == Mode.PRESENTATION
                 and self.state.time_left.seconds <= 0
             ):
-                self.state.mode = Mode.INTRO
-                self.state.page = 0
-                self.state.talk += 1
+                self.state.move_to_next_talk()
                 self.win.update_talk()
-            GLib.timeout_add(1000 / 30, update_timer)
+            GLib.timeout_add(1000 / self.frame_rate, update_timer)
 
-        GLib.timeout_add(1000 / 30, update_timer)
+        GLib.timeout_add(1000 / self.frame_rate, update_timer)
 
 
 app = LightningClient(application_id="org.fosdem.LightningTalkClient")
