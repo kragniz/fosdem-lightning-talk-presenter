@@ -13,6 +13,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
+gi.require_version("Poppler", "0.18")
 from gi.repository import Gtk, Adw, Gdk, Gio, GLib
 from gi.repository import Pango, PangoCairo
 from gi.repository import Poppler
@@ -74,6 +75,7 @@ class Mode(Enum):
 class State:
     mode: Mode
     current_talk_time_end: datetime
+    time_left: timedelta
     session: Session
     page: int
     talk: int
@@ -95,11 +97,21 @@ class State:
         talk = self.get_next_talk()
         return f"{talk.first_name} {talk.last_name}"
 
+    def get_time_remaining(self):
+        if self.mode != Mode.PRESENTATION:
+            return "05:00"
+        else:
+            hours, remainder = divmod(self.time_left.seconds, 3600)
+            minutes, seconds = divmod(remainder, 60)
+            return f"{minutes:02d}:{seconds:02d}"
+
 
 TITLE_FONT = "Inter Bold 20"
 TITLE_FONT_DEC = Pango.font_description_from_string(TITLE_FONT)
 AUTHOR_FONT = "Inter Normal 10"
 AUTHOR_FONT_DEC = Pango.font_description_from_string(AUTHOR_FONT)
+TIMER_FONT = "Inter Bold 50"
+TIMER_FONT_DEC = Pango.font_description_from_string(TIMER_FONT)
 DEFAULT_WIDTH = 453.543
 DEFAULT_HEIGHT = 255.118
 
@@ -168,6 +180,13 @@ class MainWindow(Adw.ApplicationWindow):
         finally:
             c.restore()
 
+        fade_time = 10
+        if self.state.time_left.seconds <= fade_time:
+            c.set_source_rgba(
+                0, 0, 0, 1 - ((self.state.time_left.total_seconds()) / (fade_time))
+            )
+            c.paint()
+
     def draw_intro(self, area, c, w, h, data):
         width_scale = w / DEFAULT_WIDTH
         height_scale = h / DEFAULT_HEIGHT
@@ -221,7 +240,9 @@ class MainWindow(Adw.ApplicationWindow):
             if self.state.mode == Mode.INTRO:
                 print("starting presentation")
                 self.state.mode = Mode.PRESENTATION
-                self.state.current_talk_time_end = datetime.now() + timedelta(minutes=1)
+                self.state.current_talk_time_end = datetime.now() + timedelta(
+                    minutes=0.3
+                )
                 self.update_page()
             elif self.state.mode == Mode.PRESENTATION:
                 self.state.page += 1
@@ -255,12 +276,6 @@ class PreviewWindow(Adw.ApplicationWindow):
         self.dw.set_draw_func(self.draw, None)
         self.set_content(self.dw)
 
-        def refresh_screen():
-            self.dw.queue_draw()
-            GLib.timeout_add(1000 / 30, refresh_screen)
-
-        GLib.timeout_add(1000 / 30, refresh_screen)
-
     def draw(self, area, c, w, h, data):
         width_scale = w / DEFAULT_WIDTH
         height_scale = h / DEFAULT_HEIGHT
@@ -270,10 +285,16 @@ class PreviewWindow(Adw.ApplicationWindow):
             scale = width_scale
         c.scale(scale, scale)
 
-        c.set_source_rgb(0, 0, 0)
+        foreground = (0.95, 0.95, 0.95)
+        background = (0, 0, 0)
+        if self.state.time_left.seconds <= 10:
+            if self.state.time_left.seconds % 2 == 0:
+                foreground, background = background, foreground
+
+        c.set_source_rgb(*background)
         c.paint()
 
-        c.set_source_rgb(0.9, 0.9, 0.9)
+        c.set_source_rgb(*foreground)
 
         talk = self.state.get_next_talk()
 
@@ -283,23 +304,32 @@ class PreviewWindow(Adw.ApplicationWindow):
         layout.set_width(400000)
 
         c.save()
-        c.set_source_rgb(0.9, 0.9, 0.9)
+        c.set_source_rgb(*foreground)
         c.move_to(25, 25)
         PangoCairo.show_layout(c, layout)
         c.restore()
 
-        if self.state.mode == Mode.INTRO:
-            layout.set_text(f"PRESS SPACE TO START TALK", -1)
-        if self.state.mode == Mode.PRESENTATION:
-            time_left = self.state.current_talk_time_end - datetime.now()
-            formatted_time = str(time_left).split(".")[0]
-            layout.set_text(f"TIME REMAINING: {formatted_time}", -1)
-
         layout.set_font_description(TITLE_FONT_DEC)
         layout.set_width(500000)
 
+        if self.state.mode == Mode.INTRO:
+            layout.set_text(f"PRESS SPACE TO START TALK", -1)
+        if self.state.mode == Mode.PRESENTATION:
+            formatted_time = str(self.state.time_left).split(".")[0]
+            layout.set_text(f"TIME REMAINING:", -1)
+
         c.save()
-        c.set_source_rgb(0.9, 0.9, 0.9)
+        c.set_source_rgb(*foreground)
+        c.move_to(25, 120)
+        PangoCairo.show_layout(c, layout)
+        c.restore()
+
+        layout.set_font_description(TIMER_FONT_DEC)
+
+        layout.set_text(f"{self.state.get_time_remaining()}", -1)
+
+        c.save()
+        c.set_source_rgb(*foreground)
         c.move_to(25, 150)
         PangoCairo.show_layout(c, layout)
         c.restore()
@@ -312,6 +342,7 @@ class LightningClient(Adw.Application):
 
         with open("session_1_formatted.json") as f:
             self.session = Session(json.load(f))
+
         print(self.session.start)
         print(self.session.end)
         self.session.fetch_talk_slides()
@@ -319,6 +350,7 @@ class LightningClient(Adw.Application):
         self.state = State(
             mode=Mode.INTRO,
             current_talk_time_end=datetime.now(),
+            time_left=timedelta(minutes=5),
             session=self.session,
             page=0,
             talk=0,
@@ -330,6 +362,22 @@ class LightningClient(Adw.Application):
 
         self.preview_win = PreviewWindow(state=self.state, application=app)
         self.preview_win.present()
+
+        def update_timer():
+            self.preview_win.dw.queue_draw()
+            self.win.dw.queue_draw()
+            self.state.time_left = self.state.current_talk_time_end - datetime.now()
+            if (
+                self.state.mode == Mode.PRESENTATION
+                and self.state.time_left.seconds <= 0
+            ):
+                self.state.mode = Mode.INTRO
+                self.state.page = 0
+                self.state.talk += 1
+                self.win.update_talk()
+            GLib.timeout_add(1000 / 30, update_timer)
+
+        GLib.timeout_add(1000 / 30, update_timer)
 
 
 app = LightningClient(application_id="org.fosdem.LightningTalkClient")
