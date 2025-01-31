@@ -33,7 +33,14 @@ class Session:
         self.talks = self.create_talks(talks_json)
 
     def create_talks(self, json_talks):
-        talks = []
+        talks = [
+            Talk(
+                title="Lightning Lightning Talks",
+                speakers="",
+                slides_name="lightning-slide.pdf",
+                slides_url="lightning-slide.pdf",
+            )
+        ]
         for t in json_talks:
             talks.append(
                 Talk(
@@ -43,6 +50,14 @@ class Session:
                     slides_url=t.get("slides_url"),
                 )
             )
+        talks.append(
+            Talk(
+                title="Fin.",
+                speakers="",
+                slides_name="black.pdf",
+                slides_url="black.pdf",
+            )
+        )
         return talks
 
     def fetch_talk_slides(self):
@@ -53,6 +68,7 @@ class Session:
             if not os.path.isfile(path):
                 print(f"{path} isn't available locally, fetching...")
                 urllib.request.urlretrieve(talk.slides_url, path)
+
 
 class Mode(Enum):
     INTRO = 1
@@ -72,6 +88,9 @@ class State:
 
     def get_current_talk(self):
         return self.session.talks[self.talk]
+
+    def get_number_of_talks(self):
+        return len(self.session.talks)
 
     def get_next_talk(self):
         offset = 0
@@ -186,7 +205,7 @@ class MainWindow(Adw.ApplicationWindow):
             self.draw_presentation(area, c, w, h, data)
 
     def draw_presentation(self, area, c, w, h, data):
-        c.set_source_rgb(0, 0, 0)
+        c.set_source_rgb(255, 255, 255)
         c.paint()
 
         c.save()
@@ -294,9 +313,7 @@ class MainWindow(Adw.ApplicationWindow):
             if self.state.mode == Mode.INTRO:
                 print("starting presentation")
                 self.state.mode = Mode.PRESENTATION
-                self.state.current_talk_time_end = datetime.now() + timedelta(
-                    minutes=5
-                )
+                self.state.current_talk_time_end = datetime.now() + timedelta(minutes=5)
                 self.update_page()
             elif self.state.mode == Mode.PRESENTATION:
                 self.state.page += 1
@@ -347,8 +364,6 @@ class PreviewWindow(Adw.ApplicationWindow):
         c.paint()
 
         c.set_source_rgb(*foreground)
-
-        talk = self.state.get_next_talk()
 
         layout = PangoCairo.create_layout(c)
         layout.set_text(f"NEXT SPEAKER:\n{self.state.get_next_speaker()}".upper(), -1)
@@ -413,7 +428,7 @@ class LightningClient(Adw.Application):
         self.preview_win = PreviewWindow(state=self.state, application=app)
         self.preview_win.present()
 
-        self.frame_rate = 30
+        self.frame_rate = 60
 
         def update_timer():
             self.preview_win.dw.queue_draw()
