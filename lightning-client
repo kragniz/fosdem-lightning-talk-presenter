@@ -23,33 +23,22 @@ from gi.repository import Poppler
 @dataclass
 class Talk:
     title: str
-    first_name: str
-    last_name: str
+    speakers: list
     slides_name: str
     slides_url: str
 
 
 class Session:
-    def __init__(self, api_dict):
-        self.start = self.get_time_from_field(api_dict, "start")
-        self.end = self.get_time_from_field(api_dict, "end")
-
-        talks = api_dict.get("talks")
-        self.talks = self.create_talks(talks)
-
-    def get_time_from_field(self, d, field_name):
-        timestamp = d.get(field_name).replace("Z", "+00:00")
-        return datetime.fromisoformat(timestamp)
+    def __init__(self, talks_json):
+        self.talks = self.create_talks(talks_json)
 
     def create_talks(self, json_talks):
         talks = []
         for t in json_talks:
-            author = t.get("author", {})
             talks.append(
                 Talk(
                     title=t.get("title"),
-                    first_name=author.get("first_name"),
-                    last_name=author.get("last_name"),
+                    speakers=t.get("speakers"),
                     slides_name=t.get("slides_name"),
                     slides_url=t.get("slides_url"),
                 )
@@ -64,7 +53,6 @@ class Session:
             if not os.path.isfile(path):
                 print(f"{path} isn't available locally, fetching...")
                 urllib.request.urlretrieve(talk.slides_url, path)
-
 
 class Mode(Enum):
     INTRO = 1
@@ -93,11 +81,11 @@ class State:
 
     def get_current_speaker(self):
         talk = self.get_current_talk()
-        return f"{talk.first_name} {talk.last_name}"
+        return talk.speakers
 
     def get_next_speaker(self):
         talk = self.get_next_talk()
-        return f"{talk.first_name} {talk.last_name}"
+        return talk.speakers
 
     def get_time_remaining(self):
         if self.mode != Mode.PRESENTATION:
@@ -399,15 +387,13 @@ class PreviewWindow(Adw.ApplicationWindow):
 
 
 class LightningClient(Adw.Application):
-    def __init__(self, **kwargs):
+    def __init__(self, talks_json, **kwargs):
         super().__init__(**kwargs)
         self.connect("activate", self.on_activate)
 
-        with open("session_1_formatted.json") as f:
+        with open(talks_json) as f:
             self.session = Session(json.load(f))
 
-        print(self.session.start)
-        print(self.session.end)
         self.session.fetch_talk_slides()
 
         self.state = State(
@@ -444,5 +430,5 @@ class LightningClient(Adw.Application):
         GLib.timeout_add(1000 / self.frame_rate, update_timer)
 
 
-app = LightningClient(application_id="org.fosdem.LightningTalkClient")
+app = LightningClient("talks.json", application_id="org.fosdem.LightningTalkClient")
 app.run(sys.argv)
