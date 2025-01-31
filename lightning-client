@@ -295,7 +295,7 @@ class MainWindow(Adw.ApplicationWindow):
                 print("starting presentation")
                 self.state.mode = Mode.PRESENTATION
                 self.state.current_talk_time_end = datetime.now() + timedelta(
-                    minutes=0.3
+                    minutes=5
                 )
                 self.update_page()
             elif self.state.mode == Mode.PRESENTATION:
