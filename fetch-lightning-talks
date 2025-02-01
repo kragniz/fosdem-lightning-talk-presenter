@@ -18,44 +18,64 @@ def make_request(url):
 
     return page
 
-page = make_request("https://pretalx.fosdem.org/api/events/fosdem-2025/submissions/?content_locale=&limit=50&submission_type=90&state=confirmed")
+def get_talks(pending=False):
+    if not pending:
+        q = "&state=confirmed"
+    else:
+        q = "&pending_state=accepted"
 
-count = page.get("count")
-next = page.get("next")
-results = page.get("results")
+    page = make_request(f"https://pretalx.fosdem.org/api/events/fosdem-2025/submissions/?content_locale=&limit=50&submission_type=90{q}")
 
-while next is not None:
-    page = make_request(next)
+    count = page.get("count")
     next = page.get("next")
-    r = page.get("results")
-    results.extend(r)
-    for result in r:
-        print(result)
+    results = page.get("results")
 
-talks = []
+    while next is not None:
+        page = make_request(next)
+        next = page.get("next")
+        r = page.get("results")
+        results.extend(r)
+        for result in r:
+            print(result)
 
-for result in results:
-    title = result.get("title")
-    speakers = result.get("speakers")
-    speaker_names = [speaker.get("name") for speaker in speakers]
-    print(f"{title} by {', '.join(speaker_names)}")
-    resources = result.get("resources")
+    talks = []
 
-    for resource in resources:
-        url = resource.get("resource")
-        if url.endswith(".pdf"):
-            print(url)
-            a = urlparse(url)
-            slides_name = os.path.basename(a.path)
-            talks.append(
-                {
-                    "title": title,
-                    "speakers": " & ".join(speaker_names),
-                    "slides_url": url,
-                    "slides_name": slides_name,
-                }
-            )
-            break
+    for result in results:
+        title = result.get("title")
+        speakers = result.get("speakers")
+        speaker_names = [speaker.get("name") for speaker in speakers]
+        created = result.get("created")
+        print(f"{title} by {', '.join(speaker_names)}")
+        resources = result.get("resources")
+
+        if pending:
+            pending_state = result.get("pending_state")
+            if pending_state != "confirmed":
+                print(pending_state)
+                continue
+
+        for resource in resources:
+            url = resource.get("resource")
+            if url.endswith(".pdf"):
+                print(url)
+                a = urlparse(url)
+                slides_name = os.path.basename(a.path)
+                talks.append(
+                    {
+                        "title": title,
+                        "speakers": " & ".join(speaker_names),
+                        "slides_url": url,
+                        "slides_name": slides_name,
+                        "created": created,
+                    }
+                )
+                break
+
+    return sorted(talks, key=lambda d: d['created'])
+
+talks = get_talks()
+
+talks.append(*get_talks(pending=True))
 
 with open("talks.json", "w") as f:
     json.dump(talks, f, indent=2)
