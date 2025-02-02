@@ -1,0 +1,13 @@
+#!/usr/bin/env python3
+
+import json
+
+with open("talks.json") as f:
+    talks = json.load(f)
+
+print("# Lightning Lightning Talk Schedule\n")
+
+print("Strict order of speakers:\n")
+
+for i, talk in enumerate(talks):
+    print(f"{i + 1}.  **{talk.get('speakers')}** ({talk.get('title')})\n\n")
