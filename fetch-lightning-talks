@@ -75,7 +75,7 @@ def get_talks(pending=False):
 
 talks = get_talks()
 
-talks.append(*get_talks(pending=True))
+talks.extend(get_talks(pending=True))
 
 with open("talks.json", "w") as f:
     json.dump(talks, f, indent=2)

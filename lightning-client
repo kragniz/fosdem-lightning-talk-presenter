@@ -293,7 +293,7 @@ class MainWindow(Adw.ApplicationWindow):
 
         c.save()
         c.set_source_rgb(0.3, 0.2, 0.3)
-        c.move_to(25, 250)
+        c.move_to(25, 220)
         PangoCairo.show_layout(c, layout)
         c.restore()
 
