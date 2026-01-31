@@ -108,11 +108,9 @@ class State:
 
     def get_time_remaining(self):
         if self.mode != Mode.PRESENTATION:
-            return "05:00"
+            return "256"
         else:
-            hours, remainder = divmod(self.time_left.seconds, 3600)
-            minutes, seconds = divmod(remainder, 60)
-            return f"{minutes:02d}:{seconds:02d}"
+            return f"{self.time_left.seconds:02d}"
 
     def move_to_next_talk(self):
         self.mode = Mode.INTRO
@@ -309,11 +307,11 @@ class MainWindow(Adw.ApplicationWindow):
             self.destroy()
         elif keyval == Gdk.KEY_f and state & Gdk.ModifierType.CONTROL_MASK:
             self.toggle_fullscreen()
-        elif keyval == Gdk.KEY_space or keyval == Gdk.KEY_Right:
+        elif keyval == Gdk.KEY_space or keyval == Gdk.KEY_Right or keyval == Gdk.KEY_Return:
             if self.state.mode == Mode.INTRO:
                 print("starting presentation")
                 self.state.mode = Mode.PRESENTATION
-                self.state.current_talk_time_end = datetime.now() + timedelta(minutes=5)
+                self.state.current_talk_time_end = datetime.now() + timedelta(seconds=256)
                 self.update_page()
             elif self.state.mode == Mode.PRESENTATION:
                 self.state.page += 1
