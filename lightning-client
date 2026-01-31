@@ -157,6 +157,8 @@ class MainWindow(Adw.ApplicationWindow):
         self.dw.set_draw_func(self.draw, None)
         self.set_content(self.dw)
 
+        self.set_cursor(Gdk.Cursor.new_from_name("none"))
+
         self.update_talk()
 
     def update_talk(self):
